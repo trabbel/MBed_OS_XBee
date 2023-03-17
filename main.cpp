@@ -5,7 +5,7 @@
 #define MAXIMUM_BUFFER_SIZE                                                 300
 #define START_DELIMITER                                                     0x7E
 
-static BufferedSerial xbee(PA_2, PA_3); //PA_2, PA_3
+static BufferedSerial xbee(PA_2, PA_3);
 DigitalOut rst(PA_0);
 
 DigitalOut myled(LED1);
@@ -13,25 +13,33 @@ DigitalOut myled(LED1);
 Thread thread;
 
 void rx_callback(char *buffer){
+    debug("Arrived 1\n");
     int length = 0;
     char c;
+    parsedFrame result;
     while(1){
         if(xbee.readable()>0){
+            debug("Arrived 2\n");
             c = 0;
             while(c != START_DELIMITER){
                 xbee.read(&c, 1);
             }
             length = 0;
+            debug("Arrived 3\n");
             while(length <= 0){
-                length = readFrame(buffer, xbee);
+                debug("Arrived 4\n");
+                result = readFrame(buffer, xbee);
+                length = result.length;
+                debug("Payload Size: %i\n", length);
             }
             for (int i = 0 ; i<length; i++){
                 debug("%02x", buffer[i]);
             }debug("\n");
-            debug("%.*s\n", length - 11, buffer + 11);
-
+            if(result.frameID == 0x90){
+                debug("%.*s\n", length - 11, buffer + 11);
+            }
         }
-    }//7E 00 10 90 00 7D 33 A2 00 41 F2 17 CC BF A0 01 74 65 73 74 84
+    }
 }
 
 int main() {
@@ -46,7 +54,7 @@ int main() {
     rst = 1;
     thread_sleep_for(100);
     int x = writeFrame(tx_buf, 0xFFFE, 0x0013a20041f217cc, payload, sizeof(payload));
-
+    debug("Arrived 0\n");
     thread.start(callback(rx_callback, rx_buf));
     debug("Setup finished\n");
 

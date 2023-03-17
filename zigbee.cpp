@@ -5,22 +5,20 @@
 
 #define START_DELIMITER 0x7E
 #define ESCAPE_CHAR     0x7D
-#define API_ID_INDEX    3
 
 int writeFrame(char *frame, int addr16, uint64_t addr64, char *payload, int payloadSize){
-    char tempFrame[(13+payloadSize)*2];
+    // Define a temporary array of sufficient size for everything that may be escaped
+    char tempFrame[(13+payloadSize)];
     // Frame delimiter
     frame[0] = START_DELIMITER;
-    // Payload length starting with frame type byte, excluding checksum
-    //frame[1] = 0x00;
-    //frame[2] = 0x0E + payloadSize;
+    // Payload length starting with frame type byte, excluding checksum and neccessary escape characters
     int frame_len = 0x0E + payloadSize;
     frame[1] = (frame_len >> 8) & 0xFF;
     frame[2] = frame_len & 0xFF;
     // Frame type (TX request)
     frame[3] = 0x10;
     // Frame ID
-    tempFrame[0] = 0x00;
+    tempFrame[0] = 0x01;
     // 64-bit destination address
     for(int i = 0; i<8; i++){
         tempFrame[1+i] = (addr64 >> (7-i)*8) & 0xFF;
@@ -34,37 +32,39 @@ int writeFrame(char *frame, int addr16, uint64_t addr64, char *payload, int payl
     tempFrame[12] = 0x00;
     // Payload
     memcpy(&tempFrame[13], payload, payloadSize);
-    // Checksum
+    // Checksum is calculated based on the original data (non-escaped payload),
+    // starting with the frame type
     char checksum = frame[3];
     for(int i = 0; i< 13 + payloadSize; i++){
         checksum += tempFrame[i];
     }
-
+    // Escape the payload and count how many additional escape characters have to be transitted
     int escapes = escapePayload(tempFrame, frame, payloadSize);
-
+    // Write the checkSum at the end of the frame
     frame[17+payloadSize + escapes] = 0xFF - checksum;
 
-            for (int i = 0 ; i<18+payloadSize+escapes; i++)
-            {
-                debug("%02x ", tempFrame[i]);
-            }debug("\n");
+        for (int i = 0 ; i<18+payloadSize+escapes; i++)
+        {
+            debug("%02x ", tempFrame[i]);
+        }debug("\n");
 
+    //delete[] &tempFrame;
+    // The frame is now written in the buffer and ready to send. Return the frame size in bytes
     return 18+payloadSize+escapes;
 }
 
 int escapePayload(char* payload, char* tx_buf, int payloadSize){
+    // Counter for needed escape characters
     int escapes = 0;
+    // Where to start writing the payload in the buffer
     int pos = 4;
     for (int i = 0; i < 13 + payloadSize; i++){
         if (payload[i] == 0x7E || payload[i] == 0x7D || payload[i] == 0x11 || payload[i] == 0x13){
-            tx_buf[pos] = 0x7D;
-            pos++;
-            tx_buf[pos] = payload[i] ^ 0x20;
-            pos++;
+            tx_buf[pos++] = 0x7D;
+            tx_buf[pos++] = payload[i] ^ 0x20;
             escapes++;
         }else{
-            tx_buf[pos] = payload[i];
-            pos++;
+            tx_buf[pos++] = payload[i];
         }
     }
     return escapes;
@@ -83,9 +83,9 @@ int readFramez(char *frame, BufferedSerial &serial){
     return i;
 }
 
-int readFrame(char *frame, BufferedSerial &serial){
-    //int pos = 0;
+parsedFrame readFrame(char *frame, BufferedSerial &serial){
     char API_ID = 0;
+    parsedFrame result = {0x00, 0};
     debug("Frame start\n");
 
     unsigned char lengthBytes[2];
@@ -93,19 +93,21 @@ int readFrame(char *frame, BufferedSerial &serial){
     int frameLength = (lengthBytes[0] << 8) + lengthBytes[1];
 
     serial.read(&API_ID, 1);
+    /*if(API_ID != 0x90){
+        return -4;
+    }*/
     int payloadSize = frameLength -1;
 
-    debug("1\n");
 
     for (int i = 0; i < payloadSize; i++) {
         if (!serial.readable()>0) {
             debug("Serial not readable with i: %i\n", i);
-            return -2;
+            return result;
         }
         serial.read(&frame[i], 1);
         if (frame[i] == START_DELIMITER) {
             debug("START_DELIMITER, should have been data\n");
-            return -1;
+            return result;
         }else if(frame[i] == ESCAPE_CHAR){
             thread_sleep_for(1);
             serial.read(&frame[i], 1);
@@ -121,9 +123,11 @@ int readFrame(char *frame, BufferedSerial &serial){
     if (frame[payloadSize] == 0xFF - checksum){
         debug("Checksum correct!\n");
     }else{
-        debug("Checksum wrong! Was %i, should have been %h\n", 0xFF-checksum, frame[payloadSize]);
+        debug("Checksum wrong! Should have been %02x\n", frame[payloadSize]);
+        return result;
     }
 
     debug("Complete Frame parsed\n");
-    return payloadSize;
+    result = {API_ID, payloadSize};
+    return result;
 }
