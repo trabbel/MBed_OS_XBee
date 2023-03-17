@@ -43,12 +43,10 @@ int writeFrame(char *frame, int addr16, uint64_t addr64, char *payload, int payl
     // Write the checkSum at the end of the frame
     frame[17+payloadSize + escapes] = 0xFF - checksum;
 
-        for (int i = 0 ; i<18+payloadSize+escapes; i++)
-        {
+    for (int i = 0 ; i<18+payloadSize+escapes; i++){
             debug("%02x ", tempFrame[i]);
-        }debug("\n");
+    }debug("\n");
 
-    //delete[] &tempFrame;
     // The frame is now written in the buffer and ready to send. Return the frame size in bytes
     return 18+payloadSize+escapes;
 }
@@ -70,19 +68,6 @@ int escapePayload(char* payload, char* tx_buf, int payloadSize){
     return escapes;
 }
 
-int readFramez(char *frame, BufferedSerial &serial){
-    int i = 0;
-    // Wait for start of frame delimiter
-
-    debug("Frame start\n");
-    while(serial.readable()>0){
-        serial.read(&frame[i], 1);
-        i++;
-        thread_sleep_for(1);
-    }
-    return i;
-}
-
 parsedFrame readFrame(char *frame, BufferedSerial &serial){
     char API_ID = 0;
     parsedFrame result = {0x00, 0};
@@ -93,9 +78,6 @@ parsedFrame readFrame(char *frame, BufferedSerial &serial){
     int frameLength = (lengthBytes[0] << 8) + lengthBytes[1];
 
     serial.read(&API_ID, 1);
-    /*if(API_ID != 0x90){
-        return -4;
-    }*/
     int payloadSize = frameLength -1;
 
 

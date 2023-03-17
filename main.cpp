@@ -13,21 +13,17 @@ DigitalOut myled(LED1);
 Thread thread;
 
 void rx_callback(char *buffer){
-    debug("Arrived 1\n");
     int length = 0;
     char c;
     parsedFrame result;
     while(1){
         if(xbee.readable()>0){
-            debug("Arrived 2\n");
             c = 0;
             while(c != START_DELIMITER){
                 xbee.read(&c, 1);
             }
             length = 0;
-            debug("Arrived 3\n");
             while(length <= 0){
-                debug("Arrived 4\n");
                 result = readFrame(buffer, xbee);
                 length = result.length;
                 debug("Payload Size: %i\n", length);
