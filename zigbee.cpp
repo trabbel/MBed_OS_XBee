@@ -7,12 +7,19 @@
 #define ESCAPE_CHAR     0x7D
 
 /**
- * Write a xBee API 2 in a buffer
+ * Write a xBee API 2 frame in a buffer
  * 
  * This function assembles a 0x10 transmit request frame and writes it in a given buffer.
  * The frame can be send easily by writing the buffer to a serial port that is connected to 
  * a xBee device. 
-
+ *
+ * @param frame Pointer to char array, buffer where the frame is written
+ * @param addr16 16 bit local network address
+ * @param addr64 64 bit MAC address
+ * @param payload Pointer to the hex array to send as data
+ * @param payloadSize Size of payload in bytes
+ *
+ * @returns Length of the constructed frame
  */
 int writeFrame(char *frame, int addr16, uint64_t addr64, char *payload, int payloadSize){
     // Define a temporary array of sufficient size for everything that may be escaped
@@ -47,10 +54,8 @@ int writeFrame(char *frame, int addr16, uint64_t addr64, char *payload, int payl
         checksum += tempFrame[i];
     }
     tempFrame[16+payloadSize] = 0xFF-checksum;
-    // Escape the payload and count how many additional escape characters have to be transitted
+    // Escape the payload and count how many additional escape characters have to be transmitted
     int escapes = escapePayload(tempFrame, frame, payloadSize);
-    // Write the checkSum at the end of the frame
-    //frame[17+payloadSize + escapes] = 0xFF - checksum;
 
     for (int i = 0 ; i<18+payloadSize+escapes; i++){
             debug("%02x ", tempFrame[i]);
@@ -60,7 +65,22 @@ int writeFrame(char *frame, int addr16, uint64_t addr64, char *payload, int payl
     return 18+payloadSize+escapes;
 }
 
-int escapePayload(char* payload, char* tx_buf, int payloadSize){
+/**
+ * Escape control characters in tx frames
+ *
+ * Internal use only, is called by writeFrame() to escape characters on-the-fly
+ * while writing them into the buffer. Everything after the start delimiter has to
+ * be escaped, including the length bytes and checksum. Note that checksum and length
+ * are calculated based on the original (unescaped) payload. To escape a character, 
+ * 0x7D is written to the frame and then the original character XORed with 0x20.
+ *
+ * @param payload Pointer to char array that has to be escaped
+ * @param tx_buf Pointer to buffer where to write the frame
+ * @param payloadSize Size of payload in bytes
+ *
+ * @returns Number of added escape characters
+ */
+int escapePayload(char *payload, char *tx_buf, int payloadSize){
     // Counter for needed escape characters
     int escapes = 0;
     // Where to start writing the payload in the buffer
@@ -108,11 +128,7 @@ parsedFrame readFrame(char *frame, BufferedSerial &serial){
         thread_sleep_for(1);
     }
 
-    int frameLength = (lengthBytes[0] << 8) + lengthBytes[1];
-
-    //serial.read(&API_ID, 1);
-    int payloadSize = frameLength;
-
+    int payloadSize = (lengthBytes[0] << 8) + lengthBytes[1];
 
     for (int i = 0; i < payloadSize + 1; i++) {
         if (!serial.readable()>0) {
