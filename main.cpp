@@ -8,7 +8,7 @@
 static BufferedSerial xbee(PA_2, PA_3);
 DigitalOut rst(PA_0);
 
-DigitalOut myled(LED1);
+DigitalOut myled(LED2);
 
 Thread thread;
 
@@ -62,9 +62,10 @@ int main() {
             {
                 debug("%02x ", tx_buf[i]);
             }debug("\n");*/
+        thread_sleep_for(10);
         myled = 0; 
         //debug("\n");
-        thread_sleep_for(2000);
+        thread_sleep_for(480);
 }
     // 83C9
     // 0013A20041F223B8

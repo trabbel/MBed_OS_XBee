@@ -57,9 +57,9 @@ int writeFrame(char *frame, int addr16, uint64_t addr64, char *payload, int payl
     // Escape the payload and count how many additional escape characters have to be transmitted
     int escapes = escapePayload(tempFrame, frame, payloadSize);
 
-    for (int i = 0 ; i<18+payloadSize+escapes; i++){
+    /*for (int i = 0 ; i<18+payloadSize+escapes; i++){
             debug("%02x ", tempFrame[i]);
-    }debug("\n");
+    }debug("\n");*/
 
     // The frame is now written in the buffer and ready to send
     return 18+payloadSize+escapes;
@@ -104,23 +104,41 @@ int escapePayload(char *payload, char *tx_buf, int payloadSize){
     return escapes;
 }
 
+/**
+ * Parse a XBee API 2 frame that is received over serial
+ *
+ * This method is called after the frame delimiter 0x7E is detected to parse the following frame.
+ * It will write the payload in the given buffer and return a struct containing the number of
+ * bytes in the payload as well as the frame type. In case of an error, like an unexpected frame
+ * delimiter, no more serial data to read or a wrong checksum, this method returns {0x00, x}, 
+ * which corresponds to frame tyoe 0x00 and the error code x. Frame type 0x00 does not exist in 
+ * XBee API specifications and is thus used as an error identifier. The error codes correspdond to:
+ * 0    | No more serial data to read
+ * 1    | 0x7E detected
+ * 2    | Wrong checksum
+ *
+ * @param frame Pointer to the rx buffer, where the payload of the message will be written
+ * @param serial Serial RX port from where to read the data
+ * @returns A parsedFrame struct, including the frame type and payload length
+ */
 parsedFrame readFrame(char *frame, BufferedSerial &serial){
-    //char API_ID = 0;
-    parsedFrame result = {0x00, 0};
-    debug("Frame start\n");
 
+    parsedFrame result = {0x00, 0};
     unsigned char lengthBytes[2];
     
+    // Read the length bytes. Return an error if no data is available or
+    // another frame delimiter is encountered
     for (int i = 0; i < 2; i++) {
         if (!serial.readable()>0) {
-            debug("Serial not readable with i: %i\n", i);
+            result.length = 0;
             return result;
         }
         serial.read(&lengthBytes[i], 1);
         if (lengthBytes[i] == START_DELIMITER) {
-            debug("START_DELIMITER, should have been data\n");
+            result.length = 1;
             return result;
         }else if(lengthBytes[i] == ESCAPE_CHAR){
+            // If an escape char is encountered, read the next byte instead and unescape it
             thread_sleep_for(1);
             serial.read(&lengthBytes[i], 1);
             lengthBytes[i] = lengthBytes[i] ^ 0x20;
@@ -128,37 +146,42 @@ parsedFrame readFrame(char *frame, BufferedSerial &serial){
         thread_sleep_for(1);
     }
 
+    // The length defined by the length bytes is not equal to the actual amount
+    // of bytes, escape characters are not counted
     int payloadSize = (lengthBytes[0] << 8) + lengthBytes[1];
 
+    // Read the payload. Return an error if no data is available or
+    // another frame delimiter is encountered
     for (int i = 0; i < payloadSize + 1; i++) {
         if (!serial.readable()>0) {
-            debug("Serial not readable with i: %i\n", i);
+            result.length = 0;
             return result;
         }
         serial.read(&frame[i], 1);
         if (frame[i] == START_DELIMITER) {
-            debug("START_DELIMITER, should have been data\n");
+            result.length = 1;
             return result;
         }else if(frame[i] == ESCAPE_CHAR){
+            // If an escape char is encountered, read the next byte instead and unescape it
             thread_sleep_for(1);
             serial.read(&frame[i], 1);
             frame[i] = frame[i] ^ 0x20;
         }
         thread_sleep_for(1);
     }
-    //serial.read(&frame[payloadSize], 1);
+
+    // Calculate the checksum, ignoring length bytes and escape characters
     char checksum = 0x00;
     for(int i = 0; i< payloadSize; i++){
         checksum += frame[i];
     }
-    if (frame[payloadSize] == 0xFF - checksum){
-        debug("Checksum correct!\n");
-    }else{
-        debug("Checksum wrong! Should have been %02x, was %02x\n", frame[payloadSize], 0xFF -checksum);
-        //return result;
+    // Return an error if the checksum is not matching
+    if (frame[payloadSize] != 0xFF - checksum){
+        //debug("Checksum wrong! Should have been %02x, was %02x\n", frame[payloadSize], 0xFF -checksum);
+        result.length = 2;
+        return result;
     }
 
-    debug("Complete Frame parsed\n");
     result = {frame[0], payloadSize};
     return result;
 }
